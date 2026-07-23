@@ -1,44 +1,35 @@
-# MLPerf Inference 6.1 — Red Hat Submission
+# MLPerf Inference Benchmark Results
 
-This repository contains Red Hat's MLPerf Inference v6.1 benchmark results and setup documentation.
+This repository contains our MLPerf Inference v6.1 benchmark results and setup documentation.
 
 ## Results Summary
 
-### NVIDIA GB200 NVL4
+### NVIDIA Hardware Results
 
-| Model | GPU Configuration | Offline (tokens/sec) | Server (tokens/sec) | Software Stack |
-|-------|-------------------|----------------------|---------------------|----------------|
-| gpt-oss-120b | 4x GB200 (189 GB HBM3e) | TBD | TBD | OpenShift, llm-d, vLLM 0.24.0 |
+| Model Category | Model | GPU Configuration | Offline Scenario (throughput) | Server Scenario (throughput) | Software Stack |
+|---------------|-------|-------------------|-------------------------------|------------------------------|----------------|
+| **Reasoning Model** | gpt-oss-120b | 4x GB200 (189 GB HBM3e) | TBD | TBD | OpenShift, llm-d, vLLM 0.24.0 |
+
+## Submission Results
+
+For detailed submission results, see: [MLCommons Inference Results](https://mlcommons.org/benchmarks/inference/) <!-- Update with actual submission link -->
 
 ## Setup Documentation
 
-- **GPT-OSS-120B on GB200**: See [harness/README.md](harness/README.md) for complete deployment and benchmarking guide
+Detailed setup and configuration instructions for each benchmark:
+
+- **GPT-OSS-120B**: See [harness/README.md](harness/README.md) for harness setup and configuration
 
 ## Repository Structure
 
 ```
 .
-├── README.md                      # This file
-├── harness/                       # MLPerf harness (client, configs, scripts)
-│   ├── README.md                  # Detailed setup and run guide
-│   ├── Client/                    # LoadGen client implementations
-│   ├── configs/                   # Model, backend, dataset configs
-│   └── scripts/                   # run_submission.py, set_env_vars.sh
+├── README.md (this file)
+├── harness/              # GPT-OSS-120B harness and configuration
 ├── setup/
-│   ├── llm-d/GB200/               # llm-d deployment for GB200 NVL4
-│   │   ├── deploy_gptoss120b.sh   # Top-level deploy script
-│   │   ├── install_llmd.sh        # Istio + router + model servers
-│   │   ├── apply_ocp_fixes.sh     # OpenShift fixes (SCC, image, env, ulimits)
-│   │   ├── override_gptoss120b_server.yaml
-│   │   ├── override_gptoss120b_offline.yaml
-│   │   └── epp-configs/           # EPP scorer configurations
-│   └── client/GB200/              # Client pod setup
-│       ├── client-pod.yaml
-│       └── client_setup.sh
-├── language/gpt-oss-120b/         # Upstream benchmark code
-├── compliance/                    # MLPerf compliance tests
-├── loadgen/                       # MLPerf LoadGen
-└── tools/                         # Submission tools
+│   ├── llm-d/GB200/      # llm-d deployment for GB200 NVL4
+│   └── client/GB200/     # Client pod setup
+└── language/             # Language model benchmarks
 ```
 
 ## Quick Start
@@ -62,7 +53,14 @@ oc exec -it mlperf-client -n llm-d-bench -- bash -c 'bash /client_setup.sh'
 # See harness/README.md for full instructions
 ```
 
-For detailed instructions, see [harness/README.md](harness/README.md).
+## About MLPerf Inference
+
+MLPerf Inference is a benchmark suite for measuring how fast systems can run models in a variety of deployment scenarios. For more information, visit [MLCommons](https://mlcommons.org/).
+
+## Scenarios
+
+- **Offline**: Batch inference maximizing throughput
+- **Server**: Online serving under TTFT (Time To First Token) and TPOT (Time Per Output Token) constraints
 
 ---
 
