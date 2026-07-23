@@ -44,33 +44,6 @@ For latest setup instructions and code:
 | Platform | Red Hat OpenShift (LVM operator for block storage) |
 | Python | 3.12 |
 
-### Model: GPT-OSS-120B
-
-| Property | Value |
-|----------|-------|
-| Model ID | `openai/gpt-oss-120b` |
-| Architecture | Sparse MoE — 117 B total params, 5.1 B active per token |
-| Expert Layout | 128 experts, top-4 routing |
-| Native Weight Format | MXFP4 |
-| Disk Footprint | ~500 GB |
-
-### Deployment Configuration
-
-| Parameter | Server | Offline |
-|-----------|--------|---------|
-| Replicas | 4 | 4 |
-| Tensor Parallel Size | 1 | 1 |
-| GPU Memory Utilization | 0.98 | 0.98 |
-| KV Cache Dtype | fp8 | fp8 |
-| MoE Backend | flashinfer_trtllm | flashinfer_trtllm |
-| MoE Activation Quant | mxfp8 | mxfp8 |
-| Max Model Length | 49 000 | 49 000 |
-| Max Num Seqs | 1 024 | 1 024 |
-| Max Num Batched Tokens | 8 192 | 16 384 |
-| Max CUDAGraph Capture Size | 2 048 | 8 192 |
-| Prefix Caching | Disabled | Disabled |
-| EPP Scorers | queue(2) + kv-cache(2) | queue(2) + kv-cache(2) |
-
 ---
 
 ## Prerequisites
