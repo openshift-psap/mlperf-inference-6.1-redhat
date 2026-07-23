@@ -130,8 +130,6 @@ fix_scc_and_image() {
     kubectl set image deployment/"$deploy_name" \
       "modelserver=vllm/vllm-openai:${VLLM_IMAGE_TAG}" \
       -n "$NAMESPACE" 2>/dev/null
-    log "Deleting old ReplicaSets..."
-    kubectl delete rs -l "app.kubernetes.io/name=${deploy_name}" -n "$NAMESPACE" --ignore-not-found 2>/dev/null
     ok "vLLM image set to vllm/vllm-openai:${VLLM_IMAGE_TAG}"
   fi
 
@@ -145,6 +143,10 @@ fix_scc_and_image() {
     "TIKTOKEN_RS_CACHE_DIR=${tiktoken_base}" \
     "HF_HUB_OFFLINE=1" 2>/dev/null
   ok "TIKTOKEN and HF_HUB_OFFLINE env vars set"
+
+  # Delete stale ReplicaSets before scaling up
+  log "Deleting old ReplicaSets..."
+  kubectl delete rs -n "$NAMESPACE" $(kubectl get rs -n "$NAMESPACE" --no-headers -o custom-columns=":metadata.name" | grep "$deploy_name") --ignore-not-found 2>/dev/null || true
 
   # Scale back up
   local replicas

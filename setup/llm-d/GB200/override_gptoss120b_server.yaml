@@ -17,11 +17,12 @@ modelserver:
   infra_provider: base
   replicas: 4
   tensor_parallel_size: 1
+  numa_pinning: true
 
-  cpu_limit: ""
-  cpu_request: "8"
-  memory_limit: ""
-  memory_request: 16Gi
+  cpu_limit: "16"
+  cpu_request: "16"
+  memory_limit: 32Gi
+  memory_request: 32Gi
   shm_size: 20Gi
   vllm_args:
     - "--max-model-len=49000"

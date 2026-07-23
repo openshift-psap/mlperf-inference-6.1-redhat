@@ -68,6 +68,7 @@ PVC_NAME=$(yqd '.model.pvc_name' '')
 HOST_PATH=$(yqd '.model.host_path' '')
 MODEL_MOUNT_PATH=$(yqd '.model.mount_path' '/models')
 
+NUMA_PINNING=$(yqd '.modelserver.numa_pinning' 'false')
 ACCELERATOR=$(yqd '.modelserver.accelerator' 'gpu')
 ENGINE=$(yqd '.modelserver.engine' 'vllm')
 INFRA_PROVIDER=$(yqd '.modelserver.infra_provider' 'base')
@@ -294,6 +295,13 @@ transform_modelserver() {
     jq_expr+=' | .spec.template.spec.securityContext.runAsUser = 0'
   fi
 
+  # NUMA pinning: mount wrapper script and override command
+  if [[ "$NUMA_PINNING" == "true" ]]; then
+    jq_expr+=' | .spec.template.spec.volumes += [{"name": "numa-wrapper", "configMap": {"name": "numa-vllm-wrapper", "defaultMode": 493}}]'
+    jq_expr+=' | .spec.template.spec.containers[0].volumeMounts += [{"name": "numa-wrapper", "mountPath": "/usr/local/bin/numa-vllm-wrapper.sh", "subPath": "numa-vllm-wrapper.sh"}]'
+    jq_expr+=' | .spec.template.spec.containers[0].command = ["/usr/local/bin/numa-vllm-wrapper.sh", "vllm", "serve"]'
+  fi
+
   jq_expr+=" else . end"
 
   yq -y --slurpfile newargs "$args_file" "${jq_expr}" "$rendered" > "$output"
@@ -487,6 +495,22 @@ if $DRY_RUN; then
   echo ""
   log "Dry-run complete. No resources were created."
 else
+  # Create NUMA wrapper ConfigMap if numa_pinning is enabled
+  if [[ "$NUMA_PINNING" == "true" ]]; then
+    log "Creating NUMA wrapper ConfigMap..."
+    kubectl create configmap numa-vllm-wrapper -n "$NAMESPACE" \
+      --from-literal='numa-vllm-wrapper.sh=#!/bin/bash
+GPU_BUS_ID=$(nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader | head -1 | tr '"'"'[:upper:]'"'"' '"'"'[:lower:]'"'"' | sed '"'"'s/^0000//'"'"')
+NUMA_NODE=$(cat /sys/bus/pci/devices/${GPU_BUS_ID}/numa_node 2>/dev/null || echo "-1")
+if [ "$NUMA_NODE" = "-1" ] || [ -z "$NUMA_NODE" ]; then
+    echo "WARNING: Could not determine NUMA node for GPU ${GPU_BUS_ID}, running without NUMA pinning"
+    exec "$@"
+fi
+echo "NUMA pinning: GPU ${GPU_BUS_ID} -> NUMA node ${NUMA_NODE}"
+exec numactl --cpunodebind=${NUMA_NODE} --membind=${NUMA_NODE} "$@"' \
+      --dry-run=client -o yaml | kubectl apply -f -
+  fi
+
   log "Applying model server manifests..."
   kubectl apply -n "$NAMESPACE" -f "$TRANSFORMED"
 
