@@ -38,7 +38,6 @@ For latest setup instructions and code:
 | Component | Version / Details |
 |-----------|-------------------|
 | vLLM | 0.24.0 (`vllm/vllm-openai:v0.24.0`) |
-| FlashInfer | 0.6.12 (FLASHINFER_TRTLLM_MXFP4_MXFP8 MoE backend) |
 | llm-d | `main` branch |
 | Gateway | Istio 1.29.2 with Gateway API Inference Extension |
 | Platform | Red Hat OpenShift (LVM operator for block storage) |
@@ -52,9 +51,7 @@ For latest setup instructions and code:
 
 - OpenShift (or Kubernetes) cluster with:
   - **4 NVIDIA GB200 GPUs** on a single node
-  - **32+ CPUs** for model-server pods (8 per replica × 4 replicas)
-  - **8 CPUs / 32 Gi RAM** for the client pod
-  - Istio 1.29+ with `ENABLE_GATEWAY_API_INFERENCE_EXTENSION=true`
+  - Istio 1.29+
   - A storage provisioner (LVM operator, Ceph, local-path, etc.)
 - Cluster-admin access (required for SCC grants on OpenShift)
 
