@@ -1,4 +1,72 @@
-# MLPerf® Inference Benchmark Suite
+# MLPerf Inference 6.1 — Red Hat Submission
+
+This repository contains Red Hat's MLPerf Inference v6.1 benchmark results and setup documentation.
+
+## Results Summary
+
+### NVIDIA GB200 NVL4
+
+| Model | GPU Configuration | Offline (tokens/sec) | Server (tokens/sec) | Software Stack |
+|-------|-------------------|----------------------|---------------------|----------------|
+| gpt-oss-120b | 4x GB200 (189 GB HBM3e) | TBD | TBD | OpenShift, llm-d, vLLM 0.24.0 |
+
+## Setup Documentation
+
+- **GPT-OSS-120B on GB200**: See [harness/README.md](harness/README.md) for complete deployment and benchmarking guide
+
+## Repository Structure
+
+```
+.
+├── README.md                      # This file
+├── harness/                       # MLPerf harness (client, configs, scripts)
+│   ├── README.md                  # Detailed setup and run guide
+│   ├── Client/                    # LoadGen client implementations
+│   ├── configs/                   # Model, backend, dataset configs
+│   └── scripts/                   # run_submission.py, set_env_vars.sh
+├── setup/
+│   ├── llm-d/GB200/               # llm-d deployment for GB200 NVL4
+│   │   ├── deploy_gptoss120b.sh   # Top-level deploy script
+│   │   ├── install_llmd.sh        # Istio + router + model servers
+│   │   ├── apply_ocp_fixes.sh     # OpenShift fixes (SCC, image, env, ulimits)
+│   │   ├── override_gptoss120b_server.yaml
+│   │   ├── override_gptoss120b_offline.yaml
+│   │   └── epp-configs/           # EPP scorer configurations
+│   └── client/GB200/              # Client pod setup
+│       ├── client-pod.yaml
+│       └── client_setup.sh
+├── language/gpt-oss-120b/         # Upstream benchmark code
+├── compliance/                    # MLPerf compliance tests
+├── loadgen/                       # MLPerf LoadGen
+└── tools/                         # Submission tools
+```
+
+## Quick Start
+
+```bash
+# 1. Clone
+git clone --recurse-submodule https://github.com/openshift-psap/mlperf-inference-6.1-redhat.git
+cd mlperf-inference-6.1-redhat
+
+# 2. Deploy llm-d on GB200
+cd setup/llm-d/GB200/
+bash deploy_gptoss120b.sh server
+
+# 3. Set up client pod
+cd ../../../
+oc apply -f setup/client/GB200/client-pod.yaml
+oc cp setup/client/GB200/client_setup.sh llm-d-bench/mlperf-client:/client_setup.sh
+oc exec -it mlperf-client -n llm-d-bench -- bash -c 'bash /client_setup.sh'
+
+# 4. Run tests (inside client pod)
+# See harness/README.md for full instructions
+```
+
+For detailed instructions, see [harness/README.md](harness/README.md).
+
+---
+
+# MLPerf® Inference Benchmark Suite (Upstream)
 MLPerf Inference is a benchmark suite for measuring how fast systems can run models in a variety of deployment scenarios. 
 
 Please see the [MLPerf Inference benchmark paper](https://arxiv.org/abs/1911.02549) for a detailed description of the benchmarks along with the motivation and guiding principles behind the benchmark suite. If you use any part of this benchmark (e.g., reference implementations, submissions, etc.), please cite the following:
