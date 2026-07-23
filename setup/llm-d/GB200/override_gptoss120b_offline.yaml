@@ -1,0 +1,39 @@
+guide: optimized-baseline
+namespace: llm-d-bench
+version: main
+
+model:
+  name: openai/gpt-oss-120b
+  source: pvc
+  pvc_name: model-pvc
+  mount_path: /mnt/models
+  # To use hostpath instead, switch source and uncomment:
+  # source: hostpath
+  # host_path: /var/lib/mlperf/models
+
+modelserver:
+  accelerator: gpu
+  engine: vllm
+  infra_provider: base
+  replicas: 4
+  tensor_parallel_size: 1
+
+  cpu_limit: ""
+  cpu_request: "8"
+  memory_limit: ""
+  memory_request: 16Gi
+  shm_size: 20Gi
+  vllm_args:
+    - "--max-model-len=49000"
+    - "--max-num-seqs=1024"
+    - "--gpu-memory-utilization=0.98"
+    - "--kv-cache-dtype=fp8"
+    - "--moe-backend=flashinfer_trtllm"
+    - "--quantization_config.moe.activation=mxfp8"
+    - "--max-cudagraph-capture-size=8192"
+    - "--max-num-batched-tokens=16384"
+    - "--no-enable-prefix-caching"
+
+router:
+  mode: gateway
+  epp_config: epp-configs/mlperf-v60.yaml

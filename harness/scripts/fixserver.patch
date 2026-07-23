@@ -1,0 +1,390 @@
+diff --git a/harness/Client/loadgen_client.py b/harness/Client/loadgen_client.py
+index 64192fb..577499c 100644
+--- a/harness/Client/loadgen_client.py
++++ b/harness/Client/loadgen_client.py
+@@ -1139,7 +1139,8 @@ class LoadGenOfflineClient(LoadGenClient):
+                     "max_tokens": self.max_tokens,
+                     "temperature": temperature,
+                     "top_p": top_p,
+-                    "stream": False
++                    "stream": False,
++                    "return_token_ids": True  # Request token IDs directly from API
+                 }
+             else:
+                 endpoint = endpoints['completions']
+@@ -1150,29 +1151,45 @@ class LoadGenOfflineClient(LoadGenClient):
+                     "temperature": temperature,
+                     "top_p": top_p,
+                     "top_k": top_k,
+-                    "stream": False
++                    "stream": False,
++                    "return_token_ids": True  # Request token IDs directly from API
+                 }
+-            
++
+             self.logger.debug(f"Sending API request to {endpoint} for query {q_sample.id} and temperture {temperature}, top_k {top_k}, top_p {top_p}")
+             response = self._send_request_with_retry(endpoint, api_payload, server_url)
+-            
++
+             api_result = response.json()
+-            
++
+             # Extract response
+-            if self.endpoint_type == 'chat_completions':
+-                text_response = api_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+-            else:
+-                text_response = api_result.get("choices", [{}])[0].get("text", "")
+-            
+-            # Convert to token IDs
+-            if self.tokenizer:
+-                try:
+-                    token_ids = self.tokenizer.encode(text_response, add_special_tokens=False)
+-                except Exception as e:
+-                    self.logger.warning(f"Error encoding response: {e}")
++            choice = api_result.get("choices", [{}])[0]
++
++            # Try to get token_ids directly from API response first
++            token_ids = choice.get("token_ids", None)
++
++            if token_ids is None:
++                # Fallback: extract text and re-encode
++                self.logger.debug(f"token_ids not found in API response for query {q_sample.id}, falling back to text encoding")
++                if self.endpoint_type == 'chat_completions':
++                    text_response = choice.get("message", {}).get("content", "")
++                else:
++                    text_response = choice.get("text", "")
++
++                # Convert to token IDs as fallback
++                if self.tokenizer:
++                    try:
++                        token_ids = self.tokenizer.encode(text_response, add_special_tokens=False)
++                    except Exception as e:
++                        self.logger.warning(f"Error encoding response: {e}")
++                        token_ids = []
++                else:
+                     token_ids = []
+             else:
+-                token_ids = []
++                # Got token_ids directly from API - also extract text for logging
++                self.logger.debug(f"Using token_ids from API response for query {q_sample.id}: {len(token_ids)} tokens")
++                if self.endpoint_type == 'chat_completions':
++                    text_response = choice.get("message", {}).get("content", "")
++                else:
++                    text_response = choice.get("text", "")
+ 
+             # Process response and return data (don't call LoadGen callback)
+             return self._process_single_response(q_sample.id, q_sample.index, token_ids, text_response, text_prompt)
+@@ -1262,7 +1279,8 @@ class LoadGenOfflineClient(LoadGenClient):
+                     "max_tokens": self.max_tokens,
+                     "temperature": temperature,
+                     "top_p": top_p,
+-                    "stream": False
++                    "stream": False,
++                    "return_token_ids": True  # Request token IDs directly from API
+                 }
+             else:
+                 # Batch: send as array of messages arrays
+@@ -1273,7 +1291,8 @@ class LoadGenOfflineClient(LoadGenClient):
+                     "max_tokens": self.max_tokens,
+                     "temperature": temperature,
+                     "top_p": top_p,
+-                    "stream": False
++                    "stream": False,
++                    "return_token_ids": True  # Request token IDs directly from API
+                 }
+         else:
+             endpoint = endpoints['completions']
+@@ -1285,7 +1304,8 @@ class LoadGenOfflineClient(LoadGenClient):
+                 "temperature": temperature,
+                 "top_p": top_p,
+                 "top_k": top_k,
+-                "stream": False
++                "stream": False,
++                "return_token_ids": True  # Request token IDs directly from API
+             }
+         
+         self.logger.debug(f"Sending API batch request to {endpoint} with {len(text_prompts)} prompts, max tokens {self.max_tokens}, temperature {temperature}, top_k {top_k}, top_p {top_p}")
+@@ -1478,34 +1498,43 @@ class LoadGenOfflineClient(LoadGenClient):
+     def _process_api_responses(self, choices: List[Dict], query_ids: List[int], query_indexes: List[int], text_prompts: Optional[List[str]] = None) -> None:
+         """Process API responses and send to Loadgen."""
+         self.logger.debug(f"Processing {len(choices)} API responses for {len(query_ids)} queries")
+-        
++
+         responses = []
+         for i, choice in enumerate(choices):
+             if i >= len(query_ids):
+                 self.logger.warning(f"More choices than query IDs: {len(choices)} choices, {len(query_ids)} query IDs")
+                 break
+-                
++
+             query_id = query_ids[i]
+             query_index = query_indexes[i]
+-            
+-            # Extract text response
+-            text_response = choice.get("text", "")
+-            
++
++            # Try to get token_ids directly from API response first
++            token_ids = choice.get("token_ids", None)
++
++            if token_ids is None:
++                # Fallback: extract text and re-encode
++                self.logger.debug(f"token_ids not found in API response for query {query_id}, falling back to text encoding")
++                text_response = choice.get("text", "")
++
++                # Convert back to token IDs
++                if self.tokenizer:
++                    try:
++                        token_ids = self.tokenizer.encode(text_response, add_special_tokens=False)
++                    except Exception as e:
++                        self.logger.warning(f"Error encoding response for query {query_id}: {e}")
++                        token_ids = [1, 2, 3]  # Fallback
++                else:
++                    token_ids = [1, 2, 3]  # Fallback
++            else:
++                # Got token_ids directly from API
++                self.logger.debug(f"Using token_ids from API response for query {query_id}: {len(token_ids)} tokens")
++                text_response = choice.get("text", "")
++
+             # Get the original query/prompt if available
+             query_prompt = None
+             if text_prompts and i < len(text_prompts):
+                 query_prompt = text_prompts[i]
+             
+-            # Convert back to token IDs
+-            if self.tokenizer:
+-                try:
+-                    token_ids = self.tokenizer.encode(text_response, add_special_tokens=False)
+-                except Exception as e:
+-                    self.logger.warning(f"Error encoding response for query {query_id}: {e}")
+-                    token_ids = [1, 2, 3]  # Fallback
+-            else:
+-                token_ids = [1, 2, 3]  # Fallback
+-            
+             token_count = len(token_ids)
+             
+             # Get input token count for logging
+@@ -1719,13 +1748,27 @@ class LoadGenServerClient(LoadGenClient):
+             
+             if n_tokens <= 1:
+                 self.logger.warning(f"Low token count for query {query_id}: {n_tokens}")
+-            
+-            # Create final response
+-            response_array = array.array("B", np.array(output_tokens, dtype=np.int32).tobytes())
++
++            # IMPORTANT: Exclude first token from QuerySamplesComplete
++            # The first token was already sent via FirstTokenComplete (line ~1900)
++            # To match reference implementation (server_sut.py line 344-349)
++            if len(output_tokens) > 1:
++                # Exclude first token - it was already sent to FirstTokenComplete
++                remaining_tokens = output_tokens[1:]
++                n_tokens_remaining = len(remaining_tokens)
++                self.logger.debug(f"Query {query_id}: Sending {n_tokens_remaining} remaining tokens to QuerySamplesComplete (total generated: {n_tokens})")
++            else:
++                # Edge case: only 1 token total (or empty)
++                remaining_tokens = []
++                n_tokens_remaining = 0
++                self.logger.debug(f"Query {query_id}: Only 1 token generated, sending empty to QuerySamplesComplete")
++
++            # Create final response with REMAINING tokens only
++            response_array = array.array("B", np.array(remaining_tokens, dtype=np.int32).tobytes())
+             # CRITICAL: Keep array alive to prevent garbage collection before LoadGen reads it
+             self.response_arrays[query_id] = response_array
+             bi = response_array.buffer_info()
+-            response = [lg.QuerySampleResponse(query_id, bi[0], bi[1], n_tokens)]
++            response = [lg.QuerySampleResponse(query_id, bi[0], bi[1], n_tokens_remaining)]
+             lg.QuerySamplesComplete(response)
+             
+         except Exception as e:
+@@ -1772,6 +1815,7 @@ class LoadGenServerClient(LoadGenClient):
+                 'stream': True,
+                 'top_p': top_p,
+                 'top_k': -1,
++                'return_token_ids': True,  # Request token IDs in streaming response
+             }
+             # Add top_k if it's not -1 (which means consider all tokens)
+             # Note: top_k should be an integer, not float
+@@ -1788,13 +1832,16 @@ class LoadGenServerClient(LoadGenClient):
+                 'stream': True,
+                 'top_p': top_p,
+                 'top_k': -1,
++                'return_token_ids': True,  # Request token IDs in streaming response
+             }
+         
+         # Log the JSON payload being sent (in debug mode)
+         self.logger.debug(f"LoadGenServerClient._stream_api_vllm() - Sending request to {endpoint_url} self.input_text: {input_text}")
+         self.logger.debug(f"  JSON payload: {json.dumps(json_data, indent=2)}")
+-        
+-        token_s_cache = []
++
++        token_s_cache = []  # For text accumulation (fallback)
++        token_ids_cache = []  # For token ID accumulation (preferred)
++        using_token_ids = None  # Track which method we're using
+         first = True
+         
+         while True:
+@@ -1818,42 +1865,94 @@ class LoadGenServerClient(LoadGenClient):
+                             
+                             if decoded.startswith("data") and "[DONE]" not in decoded:
+                                 try:
+-                                    data = json.loads(decoded[len("data: "):])
+-                                    finish_reason = data["choices"][0].get("finish_reason")
+-                                    stop_reason = data["choices"][0].get("stop_reason")
+-                                    
++                                    json_str = decoded[len("data: "):]
++                                    data = json.loads(json_str)
++
++                                    # DEBUG: Log raw chunk data (first chunk only to avoid spam)
++                                    if first:
++                                        self.logger.debug(f"First streaming chunk JSON: {json_str[:500]}")
++
++                                    choice_data = data["choices"][0]
++
++                                    # Extract finish_reason but process tokens FIRST
++                                    finish_reason = choice_data.get("finish_reason")
++                                    stop_reason = choice_data.get("stop_reason")
++
++                                    # Try to get token_ids from streaming response first
++                                    delta_token_ids = choice_data.get("delta_token_ids", None)
++                                    chunk_token_ids = choice_data.get("token_ids", None)
++
++                                    # DEBUG: Log what we received in this chunk
++                                    self.logger.debug(f"Streaming chunk: delta_token_ids={delta_token_ids}, chunk_token_ids={chunk_token_ids}, finish_reason={finish_reason}")
++
++                                    if delta_token_ids is not None:
++                                        # Got delta token IDs - this is the preferred method
++                                        if using_token_ids is None:
++                                            using_token_ids = True
++                                            self.logger.debug("Using delta_token_ids from streaming API response")
++
++                                        token_ids_cache.extend(delta_token_ids)
++
++                                        # Handle first token
++                                        if first and delta_token_ids:
++                                            self.first_token_queue.put((delta_token_ids[0], response_ids[0]))
++                                            first = False
++
++                                    elif chunk_token_ids is not None:
++                                        # Got token IDs in chunk
++                                        if using_token_ids is None:
++                                            using_token_ids = True
++                                            self.logger.debug("Using token_ids from streaming API response")
++
++                                        # Check if this looks like cumulative (all tokens) or delta (new tokens)
++                                        # If chunk has more tokens than we've seen, it's cumulative; otherwise extend
++                                        if len(chunk_token_ids) > len(token_ids_cache):
++                                            # Looks cumulative - replace cache
++                                            token_ids_cache = chunk_token_ids.copy()
++                                        else:
++                                            # Looks like individual tokens - extend cache
++                                            token_ids_cache.extend(chunk_token_ids)
++
++                                        # Handle first token
++                                        if first and token_ids_cache:
++                                            self.first_token_queue.put((token_ids_cache[0], response_ids[0]))
++                                            first = False
++
++                                    else:
++                                        # Fallback: extract text and accumulate
++                                        if using_token_ids is None:
++                                            using_token_ids = False
++                                            self.logger.debug("token_ids not found in streaming response, falling back to text accumulation")
++
++                                        # Extract token text based on endpoint type
++                                        if self.endpoint_type == 'chat_completions':
++                                            # Chat completions uses delta.content
++                                            delta = choice_data.get("delta", {})
++                                            token_s = delta.get("content", "")
++                                        else:
++                                            # Completions uses text
++                                            token_s = choice_data.get("text", "")
++
++                                        if token_s != "":
++                                            # Handle first token
++                                            if first:
++                                                if self.tokenizer:
++                                                    token_ids = self.tokenizer.encode(token_s, add_special_tokens=False)
++                                                    if token_ids:
++                                                        self.first_token_queue.put((token_ids[0], response_ids[0]))
++                                                first = False
++
++                                            token_s_cache.append(str(token_s))
++
++                                    # NOW check finish_reason AFTER processing tokens
+                                     if (finish_reason is not None) or (stop_reason is not None):
+-                                        # Don't add EOS token - backend should handle this
+-                                        # If finish_reason is "length", the backend already stopped at max_tokens
+-                                        # Adding an EOS token here would add an unwanted token
++                                        # Generation finished - break after this chunk
+                                         if finish_reason != "length":
+-                                            self.logger.warning(
++                                            self.logger.debug(
+                                                 f"Sequence finished: finish_reason={finish_reason}, "
+                                                 f"stop_reason={stop_reason}"
+                                             )
+-                                        continue
+-                                    
+-                                    # Extract token based on endpoint type
+-                                    if self.endpoint_type == 'chat_completions':
+-                                        # Chat completions uses delta.content
+-                                        delta = data["choices"][0].get("delta", {})
+-                                        token_s = delta.get("content", "")
+-                                    else:
+-                                        # Completions uses text
+-                                        token_s = data["choices"][0].get("text", "")
+-                                    
+-                                    if token_s == "":
+-                                        continue
+-                                    
+-                                    # Handle first token
+-                                    if first:
+-                                        if self.tokenizer:
+-                                            token_ids = self.tokenizer.encode(token_s, add_special_tokens=False)
+-                                            if token_ids:
+-                                                self.first_token_queue.put((token_ids[0], response_ids[0]))
+-                                        first = False
+-                                    
+-                                    token_s_cache.append(str(token_s))
++                                        break  # Exit loop after processing final chunk
+                                     
+                                 except json.JSONDecodeError as e:
+                                     self.logger.debug(f"JSON decode error: {e}")
+@@ -1863,17 +1962,32 @@ class LoadGenServerClient(LoadGenClient):
+                                     continue
+                     
+                     s.close()
+-                    
+-                    # Convert accumulated tokens to token IDs
+-                    if token_s_cache:
++
++                    # DEBUG: Log what we accumulated
++                    self.logger.debug(f"Streaming complete - using_token_ids={using_token_ids}, token_ids_cache length={len(token_ids_cache)}, token_s_cache length={len(token_s_cache)}")
++
++                    # Return accumulated tokens
++                    if using_token_ids and token_ids_cache:
++                        # Got token IDs directly from API
++                        self.logger.debug(f"Returning {len(token_ids_cache)} token IDs from streaming API: {token_ids_cache[:10]}..." if len(token_ids_cache) > 10 else f"Returning {len(token_ids_cache)} token IDs from streaming API: {token_ids_cache}")
++                        return token_ids_cache
++                    elif token_s_cache:
++                        # Fallback: Convert accumulated text to token IDs
+                         if self.tokenizer:
+                             full_text = "".join(token_s_cache)
+-                            return self.tokenizer.encode(full_text, add_special_tokens=False)
++                            self.logger.debug(f"Accumulated text length: {len(full_text)} chars, text preview: '{full_text[:100]}'")
++                            result = self.tokenizer.encode(full_text, add_special_tokens=False)
++                            self.logger.debug(f"Returning {len(result)} token IDs from text re-encoding: {result[:10]}..." if len(result) > 10 else f"Returning {len(result)} token IDs from text re-encoding: {result}")
++                            return result
+                         else:
+                             # Fallback: return placeholder tokens
+                             self.logger.warning("No tokenizer available for encoding response")
+                             return [1, 2, 3]
+-                    
++                    else:
++                        # No tokens accumulated at all!
++                        self.logger.error("No tokens accumulated from streaming response!")
++                        return [1, 2, 3]
++
+                     break
+                     
+             except Exception as e:
+
