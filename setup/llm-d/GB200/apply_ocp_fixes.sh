@@ -73,6 +73,7 @@ yqd() { yq -r "$1 // \"$2\"" "$OVERRIDE_FILE"; }
 
 NAMESPACE=$(yqr '.namespace')
 GUIDE=$(yqr '.guide')
+ROUTER_MODE=$(yqd '.router.mode' 'standalone')
 MODEL_SOURCE=$(yqd '.model.source' 'huggingface')
 HOST_PATH=$(yqd '.model.host_path' '')
 PVC_NAME=$(yqd '.model.pvc_name' '')
@@ -113,15 +114,19 @@ fix_scc_and_image() {
   oc adm policy add-scc-to-user privileged -z "$ms_sa" -n "$NAMESPACE" 2>/dev/null
   ok "Granted privileged SCC to $ms_sa"
 
-  # Gateway SA needs anyuid (runs as UID 10101)
-  oc adm policy add-scc-to-user anyuid -z llm-d-inference-gateway -n "$NAMESPACE" 2>/dev/null
-  ok "Granted anyuid SCC to llm-d-inference-gateway"
+  # Gateway SA needs anyuid (gateway mode only)
+  if [[ "$ROUTER_MODE" == "gateway" ]]; then
+    oc adm policy add-scc-to-user anyuid -z llm-d-inference-gateway -n "$NAMESPACE" 2>/dev/null
+    ok "Granted anyuid SCC to llm-d-inference-gateway"
+  fi
 
   # Scale down deployments
   local deploy_name="${GUIDE}-nvidia-gpu-vllm-decode"
   log "Scaling down deployments..."
   kubectl scale deployment "$deploy_name" -n "$NAMESPACE" --replicas=0 2>/dev/null
-  kubectl scale deployment llm-d-inference-gateway -n "$NAMESPACE" --replicas=0 2>/dev/null
+  if [[ "$ROUTER_MODE" == "gateway" ]]; then
+    kubectl scale deployment llm-d-inference-gateway -n "$NAMESPACE" --replicas=0 2>/dev/null
+  fi
   sleep 5
 
   # Override vLLM image if requested
@@ -152,7 +157,9 @@ fix_scc_and_image() {
   local replicas
   replicas=$(yqd '.modelserver.replicas' '4')
   kubectl scale deployment "$deploy_name" -n "$NAMESPACE" --replicas="$replicas" 2>/dev/null
-  kubectl scale deployment llm-d-inference-gateway -n "$NAMESPACE" --replicas=1 2>/dev/null
+  if [[ "$ROUTER_MODE" == "gateway" ]]; then
+    kubectl scale deployment llm-d-inference-gateway -n "$NAMESPACE" --replicas=1 2>/dev/null
+  fi
   ok "Deployments restarted with SCC applied"
 }
 
@@ -171,44 +178,52 @@ fix_selinux() {
 }
 
 # =============================================================================
-# Fix 3: File Descriptor Limits on Gateway
+# Fix 3: File Descriptor Limits on Gateway/EPP
 # =============================================================================
 fix_ulimits() {
-  log "Fixing file descriptor limits on gateway processes..."
+  log "Fixing file descriptor limits on envoy processes..."
 
-  # Wait for gateway pod to be running
-  local attempts=0
-  while [[ $attempts -lt 30 ]]; do
-    local ready
-    ready=$(kubectl get pods -n "$NAMESPACE" -l gateway.networking.k8s.io/gateway-name=llm-d-inference-gateway \
-      -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null)
-    if [[ "$ready" == "true" ]]; then
-      break
+  if [[ "$ROUTER_MODE" == "gateway" ]]; then
+    # Wait for gateway pod to be running
+    local attempts=0
+    while [[ $attempts -lt 30 ]]; do
+      local ready
+      ready=$(kubectl get pods -n "$NAMESPACE" -l gateway.networking.k8s.io/gateway-name=llm-d-inference-gateway \
+        -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null)
+      if [[ "$ready" == "true" ]]; then
+        break
+      fi
+      sleep 10
+      ((attempts++))
+    done
+
+    if [[ $attempts -ge 30 ]]; then
+      warn "Gateway pod not ready after 5 minutes. Skipping ulimit fix."
+      warn "Run './apply_ocp_fixes.sh -o $OVERRIDE_FILE --fix-ulimits' later."
+      return
     fi
-    sleep 10
-    ((attempts++))
-  done
-
-  if [[ $attempts -ge 30 ]]; then
-    warn "Gateway pod not ready after 5 minutes. Skipping ulimit fix."
-    warn "Run './post-deploy.sh -o $OVERRIDE_FILE --fix-ulimits' later."
-    return
   fi
 
-  # Apply prlimit to all agentgateway processes
-  oc debug "node/$NODE_NAME" --  chroot /host bash -c "
-    for PID in \$(pgrep -f agentgateway 2>/dev/null); do
-      prlimit --pid \$PID --nofile=65536:65536 2>/dev/null
+  # Apply prlimit to all envoy/pilot-agent processes (gateway and standalone both use envoy)
+  oc debug "node/$NODE_NAME" -- chroot /host bash -c "
+    FIXED=0
+    for PID in \$(pgrep -f 'envoy|pilot-agent' 2>/dev/null); do
+      prlimit --pid \$PID --nofile=65536:65536 2>/dev/null && FIXED=\$((FIXED+1))
     done
-    echo 'Fixed \$(pgrep -f agentgateway 2>/dev/null | wc -l) agentgateway processes'
+    echo \"Fixed \$FIXED envoy processes\"
   " 2>/dev/null
-  ok "Gateway file descriptor limits set to 65536"
+  ok "File descriptor limits set to 65536"
 }
 
 # =============================================================================
 # Fix 4: HTTPRoute Timeout
 # =============================================================================
 fix_timeout() {
+  if [[ "$ROUTER_MODE" != "gateway" ]]; then
+    log "Skipping HTTPRoute timeout (standalone mode)"
+    return
+  fi
+
   log "Setting HTTPRoute timeout to 7200s (2 hours)..."
 
   kubectl patch httproute "$GUIDE" -n "$NAMESPACE" --type=merge -p '{
@@ -271,9 +286,16 @@ verify() {
     return
   fi
 
+  local svc_url
+  if [[ "$ROUTER_MODE" == "standalone" ]]; then
+    svc_url="http://${GUIDE}-epp.${NAMESPACE}.svc.cluster.local:80"
+  else
+    svc_url="http://llm-d-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+  fi
+
   local result
   result=$(kubectl exec "$test_pod" -n "$NAMESPACE" -- curl -s --connect-timeout 30 \
-    "http://llm-d-inference-gateway.${NAMESPACE}.svc.cluster.local:80/v1/completions" \
+    "${svc_url}/v1/completions" \
     -H "Content-Type: application/json" \
     -d '{"model":"openai/gpt-oss-120b","prompt":"Hello","max_tokens":3}' 2>/dev/null)
 
@@ -325,14 +347,25 @@ log "Post-deploy complete!"
 log "=========================================="
 echo ""
 log "Summary of fixes applied:"
-log "  1. SCC: privileged for model server SA, anyuid for gateway SA"
+log "  1. SCC: privileged for model server SA"
+if [[ "$ROUTER_MODE" == "gateway" ]]; then
+  log "     + anyuid for gateway SA"
+fi
 log "  2. vLLM image + TIKTOKEN/HF env vars"
 log "  3. SELinux: svirt_sandbox_file_t on hostPath (if applicable)"
-log "  4. HTTPRoute timeout: 7200s"
-log "  5. File descriptors: 65536 on gateway processes (temporary)"
+if [[ "$ROUTER_MODE" == "gateway" ]]; then
+  log "  4. HTTPRoute timeout: 7200s"
+fi
+log "  5. File descriptors: 65536 on envoy processes (temporary)"
 echo ""
 log "NOTE: The file descriptor fix is temporary."
-log "If the gateway pod restarts, re-run:"
+log "If envoy restarts, re-run:"
 log "  ./apply_ocp_fixes.sh -o $OVERRIDE_FILE --fix-ulimits"
+echo ""
+if [[ "$ROUTER_MODE" == "standalone" ]]; then
+  log "Service URL: http://${GUIDE}-epp.${NAMESPACE}.svc.cluster.local:80"
+else
+  log "Gateway URL: http://llm-d-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+fi
 echo ""
 log "Next: deploy the client pod (see setup/client/GB200/)"

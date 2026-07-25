@@ -1,6 +1,6 @@
 guide: optimized-baseline
 namespace: llm-d-bench
-version: main
+version: v0.8.1
 
 model:
   name: openai/gpt-oss-120b

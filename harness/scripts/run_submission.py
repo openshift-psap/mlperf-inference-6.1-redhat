@@ -85,6 +85,7 @@ class HarnessRunner:
             'dry_run': False,
             'print_bash': False,
             'no_mlflow': False,
+            'num_workers': os.environ.get('NUM_WORKERS', '1'),
         }
         
         # Derive dataset paths if dataset_dir is set
@@ -151,6 +152,7 @@ Examples:
         parser.add_argument('--user-conf', help='User config file for performance/accuracy tests')
         parser.add_argument('--dry-run', action='store_true', help='Print commands without executing')
         parser.add_argument('--print-bash', action='store_true', help='Print bash script with environment variables and commands')
+        parser.add_argument('--num-workers', help='Number of async workers for server scenario (default: 1)')
         parser.add_argument('--no-mlflow', action='store_true', help='Disable MLflow integration (skip all MLflow arguments)')
         
         # Commands
@@ -314,13 +316,7 @@ Examples:
             
             # Add MLflow tracking URI
             if self.config['mlflow_tracking_uri']:
-                uri = self.config['mlflow_tracking_uri'].replace('http://', '').replace('https://', '')
-                if ':' in uri:
-                    host, port = uri.split(':', 1)
-                    cmd.extend(['--mlflow-host', host])
-                    cmd.extend(['--mlflow-port', port])
-                else:
-                    cmd.extend(['--mlflow-host', uri])
+                cmd.extend(['--mlflow-tracking-uri', self.config['mlflow_tracking_uri']])
             
             # Add MLflow description
             if description:
@@ -340,7 +336,11 @@ Examples:
         # Add server-target-qps for Server scenario
         if scenario == 'Server':
             cmd.extend(['--server-target-qps', self.config['server_target_qps']])
-        
+
+        # Add num-workers
+        if int(self.config['num_workers']) > 1:
+            cmd.extend(['--num-workers', self.config['num_workers']])
+
         # Add user-conf for performance/accuracy tests (if not compliance)
         # Priority: explicit user_conf > scenario-specific defaults
         user_conf_to_use = None

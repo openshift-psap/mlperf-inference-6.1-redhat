@@ -19,18 +19,22 @@ echo "=========================================="
 
 # Install system dependencies
 echo "Installing system dependencies..."
-apt-get update -qq && apt-get install -y -qq git build-essential curl > /dev/null 2>&1
+apt-get update -qq && apt-get install -y -qq git build-essential curl tmux vim > /dev/null 2>&1
 
 # Install uv for fast Python package management
 pip install -q uv
 
+WORK_DIR=/mnt/models/test-mlperf
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
+
 # Clone the 6.1 inference repo
-echo "Cloning mlperf-inference-6.1-redhat..."
+echo "Cloning mlperf-inference-6.1-redhat into ${WORK_DIR}..."
 git clone --recurse-submodule https://github.com/openshift-psap/mlperf-inference-6.1-redhat.git
 
 # Create and activate virtual environment
-uv venv -p 3.12 gptoss_harness
-source gptoss_harness/bin/activate
+uv venv -p 3.12 "${WORK_DIR}/gptoss_harness"
+source "${WORK_DIR}/gptoss_harness/bin/activate"
 
 # Install GPT-OSS-120B benchmark dependencies
 cd mlperf-inference-6.1-redhat/language/gpt-oss-120b
@@ -47,7 +51,8 @@ echo "Setup complete!"
 echo "=========================================="
 echo ""
 echo "To activate the environment in future sessions:"
-echo "  source /gptoss_harness/bin/activate"
+echo "  source /mnt/models/test-mlperf/gptoss_harness/bin/activate"
+echo "  cd /mnt/models/test-mlperf/mlperf-inference-6.1-redhat/harness"
 echo ""
 echo "Set environment variables before running tests:"
 echo "  export API_SERVER_URL=http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80"

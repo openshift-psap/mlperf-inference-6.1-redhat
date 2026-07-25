@@ -15,26 +15,30 @@ modelserver:
   accelerator: gpu
   engine: vllm
   infra_provider: base
-  replicas: 4
+  replicas: 1
   tensor_parallel_size: 1
-  numa_pinning: true
+  gpu_count: 4
+  numa_pinning: false
 
-  cpu_limit: "16"
-  cpu_request: "16"
-  memory_limit: 32Gi
-  memory_request: 32Gi
+  cpu_limit: ""
+  cpu_request: "32"
+  memory_limit: ""
+  memory_request: 64Gi
   shm_size: 20Gi
   vllm_args:
     - "--max-model-len=49000"
-    - "--max-num-seqs=1024"
+    - "--max-num-seqs=2048"
     - "--gpu-memory-utilization=0.98"
     - "--kv-cache-dtype=fp8"
     - "--moe-backend=flashinfer_trtllm"
     - "--quantization_config.moe.activation=mxfp8"
-    - "--max-cudagraph-capture-size=8192"
-    - "--max-num-batched-tokens=16384"
+    - "--max-cudagraph-capture-size=2048"
+    - "--max-num-batched-tokens=8192"
     - "--no-enable-prefix-caching"
+    - "--data-parallel-size=4"
+    - "--pipeline-parallel-size=1"
+    - "--enable-expert-parallel"
 
 router:
-  mode: gateway
+  mode: standalone
   epp_config: epp-configs/mlperf-v60.yaml

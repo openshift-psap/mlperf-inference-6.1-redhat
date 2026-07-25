@@ -111,10 +111,12 @@ def add_common_harness_args(parser: argparse.ArgumentParser):
                        help="MLflow experiment name (enables MLflow tracking)")
     parser.add_argument("--mlflow-output-dir", type=str, default=None,
                        help="Output directory to upload to MLflow (defaults to --output-dir)")
+    parser.add_argument("--mlflow-tracking-uri", type=str, default=None,
+                       help="MLflow tracking URI (e.g., https://mlflow.example.com)")
     parser.add_argument("--mlflow-host", type=str, default="localhost",
-                       help="MLflow tracking server hostname")
+                       help="MLflow tracking server hostname (deprecated, use --mlflow-tracking-uri)")
     parser.add_argument("--mlflow-port", type=int, default=5000,
-                       help="MLflow tracking server port")
+                       help="MLflow tracking server port (deprecated, use --mlflow-tracking-uri)")
     parser.add_argument("--mlflow-description", type=str, default=None,
                        help="Optional description for MLflow run (overrides auto-generated description)")
     parser.add_argument("--mlflow-tag", type=str, default=None,
@@ -178,7 +180,10 @@ def parse_common_harness_args(args):
     # Construct MLflow tracking URI if experiment name is provided
     mlflow_tracking_uri = None
     if args.mlflow_experiment_name:
-        mlflow_tracking_uri = f"http://{args.mlflow_host}:{args.mlflow_port}"
+        if args.mlflow_tracking_uri:
+            mlflow_tracking_uri = args.mlflow_tracking_uri
+        else:
+            mlflow_tracking_uri = f"http://{args.mlflow_host}:{args.mlflow_port}"
     
     # Add backend to server_config if specified (command line overrides YAML config)
     if args.backend:

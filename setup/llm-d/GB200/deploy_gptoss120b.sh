@@ -9,7 +9,7 @@
 #
 # Software:
 #   - vLLM 0.24.0 with FlashInfer 0.6.12
-#   - llm-d with Istio gateway
+#   - llm-d (standalone or Istio gateway mode)
 #   - OpenShift with LVM operator for PVC storage
 #
 # Usage:
@@ -63,5 +63,11 @@ echo "Next: deploy the client pod to run MLPerf benchmarks"
 echo "  oc apply -f setup/client/GB200/client-pod.yaml"
 echo "  oc exec -it mlperf-client -n llm-d-bench -- bash client_setup.sh"
 echo ""
-echo "Gateway URL:  http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80"
+ROUTER_MODE=$(yq -r '.router.mode // "standalone"' "$OVERRIDE")
+if [[ "$ROUTER_MODE" == "standalone" ]]; then
+    GUIDE=$(yq -r '.guide' "$OVERRIDE")
+    echo "Service URL:  http://${GUIDE}-epp.llm-d-bench.svc.cluster.local:80"
+else
+    echo "Gateway URL:  http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80"
+fi
 echo "Cleanup:      $0 ${MODE} --cleanup"
