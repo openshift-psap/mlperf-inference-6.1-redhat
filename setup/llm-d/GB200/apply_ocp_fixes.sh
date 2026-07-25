@@ -183,25 +183,28 @@ fix_selinux() {
 fix_ulimits() {
   log "Fixing file descriptor limits on envoy processes..."
 
-  if [[ "$ROUTER_MODE" == "gateway" ]]; then
-    # Wait for gateway pod to be running
-    local attempts=0
-    while [[ $attempts -lt 30 ]]; do
-      local ready
+  # Wait for envoy to be running (gateway or standalone EPP)
+  local attempts=0
+  while [[ $attempts -lt 30 ]]; do
+    local ready
+    if [[ "$ROUTER_MODE" == "gateway" ]]; then
       ready=$(kubectl get pods -n "$NAMESPACE" -l gateway.networking.k8s.io/gateway-name=llm-d-inference-gateway \
         -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null)
-      if [[ "$ready" == "true" ]]; then
-        break
-      fi
-      sleep 10
-      ((attempts++))
-    done
-
-    if [[ $attempts -ge 30 ]]; then
-      warn "Gateway pod not ready after 5 minutes. Skipping ulimit fix."
-      warn "Run './apply_ocp_fixes.sh -o $OVERRIDE_FILE --fix-ulimits' later."
-      return
+    else
+      ready=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=epp \
+        -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="envoy-proxy")].ready}' 2>/dev/null)
     fi
+    if [[ "$ready" == "true" ]]; then
+      break
+    fi
+    sleep 10
+    ((attempts++))
+  done
+
+  if [[ $attempts -ge 30 ]]; then
+    warn "Envoy not ready after 5 minutes. Skipping ulimit fix."
+    warn "Run './apply_ocp_fixes.sh -o $OVERRIDE_FILE --fix-ulimits' later."
+    return
   fi
 
   # Apply prlimit to all envoy/pilot-agent processes (gateway and standalone both use envoy)
