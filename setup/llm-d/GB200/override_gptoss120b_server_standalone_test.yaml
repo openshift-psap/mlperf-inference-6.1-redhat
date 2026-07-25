@@ -14,7 +14,7 @@ model:
 modelserver:
   accelerator: gpu
   engine: vllm
-  infra_provider: base
+  infra_provider: gpt-oss
   replicas: 1
   tensor_parallel_size: 1
   gpu_count: 4
