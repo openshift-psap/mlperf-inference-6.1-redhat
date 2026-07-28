@@ -59,11 +59,15 @@ For latest setup instructions and code:
 
 ```bash
 # macOS
-brew install yq jq kubectl helm kustomize git curl
+brew install jq kubectl helm kustomize git curl
+pip3 install yq
 
 # RHEL / Fedora
-sudo dnf install yq jq kubectl helm kustomize git curl
+sudo dnf install jq kubectl helm kustomize git curl
+pip3 install yq
 ```
+
+> **Important:** Install `yq` via `pip3 install yq` (Python wrapper around `jq`), NOT via `dnf`/`brew`/`snap` which install the Go version (`mikefarah/yq`). The deployment scripts require the Python `yq` syntax. Verify with: `yq --version` — it should show `yq <version>` without `(https://github.com/mikefarah/yq/)`.
 
 OpenShift CLI (`oc`): download from  
 <https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/>
