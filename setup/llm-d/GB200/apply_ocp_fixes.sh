@@ -289,12 +289,7 @@ verify() {
     return
   fi
 
-  local svc_url
-  if [[ "$ROUTER_MODE" == "standalone" ]]; then
-    svc_url="http://${GUIDE}-epp.${NAMESPACE}.svc.cluster.local:80"
-  else
-    svc_url="http://llm-d-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
-  fi
+  local svc_url="http://vllm-direct.${NAMESPACE}.svc.cluster.local:8000"
 
   local result
   result=$(kubectl exec "$test_pod" -n "$NAMESPACE" -- curl -s --connect-timeout 30 \
@@ -342,6 +337,25 @@ echo ""
 fix_ulimits
 echo ""
 
+# Create vllm-direct K8s service for direct access to model servers
+log "Creating vllm-direct service..."
+cat <<SVCEOF | kubectl apply -n "$NAMESPACE" -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-direct
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    llm-d.ai/model: ${MODEL_SHORT}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+SVCEOF
+ok "vllm-direct service created (http://vllm-direct.${NAMESPACE}.svc.cluster.local:8000)"
+
 verify
 
 echo ""
@@ -365,10 +379,12 @@ log "NOTE: The file descriptor fix is temporary."
 log "If envoy restarts, re-run:"
 log "  ./apply_ocp_fixes.sh -o $OVERRIDE_FILE --fix-ulimits"
 echo ""
-if [[ "$ROUTER_MODE" == "standalone" ]]; then
-  log "Service URL: http://${GUIDE}-epp.${NAMESPACE}.svc.cluster.local:80"
-else
-  log "Gateway URL: http://llm-d-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
-fi
+log "API URL: http://vllm-direct.${NAMESPACE}.svc.cluster.local:8000"
+# EPP/Gateway URLs (if using llm-d routing instead of direct K8s service):
+# if [[ "$ROUTER_MODE" == "standalone" ]]; then
+#   log "EPP URL: http://${GUIDE}-epp.${NAMESPACE}.svc.cluster.local:80"
+# else
+#   log "Gateway URL: http://llm-d-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+# fi
 echo ""
 log "Next: deploy the client pod (see setup/client/GB200/)"

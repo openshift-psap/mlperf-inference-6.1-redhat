@@ -19,10 +19,10 @@ modelserver:
   tensor_parallel_size: 1
   numa_pinning: true
 
-  cpu_limit: "16"
-  cpu_request: "16"
-  memory_limit: 32Gi
-  memory_request: 32Gi
+  cpu_limit: "20"
+  cpu_request: "20"
+  memory_limit: 16Gi
+  memory_request: 16Gi
   shm_size: 20Gi
   vllm_args:
     - "--max-model-len=49000"

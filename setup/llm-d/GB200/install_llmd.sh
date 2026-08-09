@@ -141,6 +141,12 @@ else
   log "Using existing clone at ${CLONE_DIR}"
 fi
 
+# Fix v0.8.1 bug: kustomization.yaml references wrong patch filename
+GPTOSS_KUST="${CLONE_DIR}/guides/optimized-baseline/modelserver/gpu/vllm/gpt-oss/kustomization.yaml"
+if [[ -f "$GPTOSS_KUST" ]] && grep -q "patch-vllm-gpt120b.yaml" "$GPTOSS_KUST"; then
+  sed -i.bak 's/patch-vllm-gpt120b.yaml/patch-vllm.yaml/' "$GPTOSS_KUST"
+fi
+
 # Source env.sh from the cloned repo
 REPO_ROOT="$CLONE_DIR"
 export REPO_ROOT

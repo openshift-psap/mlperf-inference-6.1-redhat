@@ -82,13 +82,14 @@ echo "Next: deploy the client pod to run MLPerf benchmarks"
 echo "  oc apply -f setup/client/GB200/client-pod.yaml"
 echo "  oc exec -it mlperf-client -n llm-d-bench -- bash client_setup.sh"
 echo ""
-ROUTER_MODE=$(yq -r '.router.mode // "standalone"' "$OVERRIDE")
-if [[ "$ROUTER_MODE" == "standalone" ]]; then
-    GUIDE=$(yq -r '.guide' "$OVERRIDE")
-    echo "Service URL:  http://${GUIDE}-epp.llm-d-bench.svc.cluster.local:80"
-else
-    echo "Gateway URL:  http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80"
-fi
+echo "API URL:      http://vllm-direct.llm-d-bench.svc.cluster.local:8000"
+# ROUTER_MODE=$(yq -r '.router.mode // "standalone"' "$OVERRIDE")
+# if [[ "$ROUTER_MODE" == "standalone" ]]; then
+#     GUIDE=$(yq -r '.guide' "$OVERRIDE")
+#     echo "EPP URL:      http://${GUIDE}-epp.llm-d-bench.svc.cluster.local:80"
+# else
+#     echo "Gateway URL:  http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80"
+# fi
 if $STANDALONE; then
     echo "Cleanup:      $0 ${MODE} --standalone --cleanup"
 else

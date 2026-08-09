@@ -1,9 +1,10 @@
 # MLPerf Inference 6.1 Harness — GPT-OSS-120B
 
-This guide provides step-by-step instructions for reproducing the MLPerf Inference 6.1 submission for GPT-OSS-120B on NVIDIA GB200 NVL4 using llm-d on OpenShift.
+This guide provides step-by-step instructions for reproducing the MLPerf Inference 6.1 submission for GPT-OSS-120B on NVIDIA GB200 NVL4 on Red Hat OpenShift.
 
 For latest setup instructions and code:
-- Clone the repo: https://github.com/openshift-psap/mlperf-inference-6.1-redhat
+
+- Clone the repo: [https://github.com/openshift-psap/mlperf-inference-6.1-redhat](https://github.com/openshift-psap/mlperf-inference-6.1-redhat)
 - Follow the instructions in [README.md](https://github.com/openshift-psap/mlperf-inference-6.1-redhat/blob/master/harness/README.md)
 - Open an issue if you encounter any blocker
 
@@ -12,9 +13,9 @@ For latest setup instructions and code:
 1. [Hardware and Software Overview](#hardware-and-software-overview)
 2. [Prerequisites](#prerequisites)
 3. [Model Storage Setup](#model-storage-setup)
-4. [LLM-D Deployment](#llm-d-deployment)
+4. [Deployment Setup](#deployment-setup)
 5. [Client Pod Setup](#client-pod-setup)
-6. [Running Tests with run_submission.py](#running-tests-with-run_submissionpy)
+6. [Running Tests](#running-tests)
 7. [Creating Submission](#creating-submission)
 8. [Quick Reference](#quick-reference)
 9. [Troubleshooting](#troubleshooting)
@@ -25,23 +26,45 @@ For latest setup instructions and code:
 
 ### Hardware: NVIDIA GB200 NVL4
 
-| Component | Specification |
-|-----------|---------------|
-| GPUs | 4x NVIDIA GB200 (Blackwell), 189GB HBM3e each |
-| CPUs | 2x NVIDIA Grace (ARM), 72 cores each (144 total) |
-| GPU–GPU Interconnect | NVLink 5.0, 1.8 TB/s bidirectional |
-| CPU–GPU Interconnect | NVLink-C2C, 900 GB/s bidirectional |
-| NUMA Topology | GPU 0,1 → NUMA 0 (CPUs 0–71); GPU 2,3 → NUMA 1 (CPUs 72–143) |
+
+| Component            | Specification                                                |
+| -------------------- | ------------------------------------------------------------ |
+| GPUs                 | 4x NVIDIA GB200 (Blackwell), 189GB HBM3e each                |
+| CPUs                 | 2x NVIDIA Grace (ARM), 72 cores each (144 total)             |
+| GPU–GPU Interconnect | NVLink 5.0, 1.8 TB/s bidirectional                           |
+| CPU–GPU Interconnect | NVLink-C2C, 900 GB/s bidirectional                           |
+| NUMA Topology        | GPU 0,1 → NUMA 0 (CPUs 0–71); GPU 2,3 → NUMA 1 (CPUs 72–143) |
+
 
 ### Software Stack
 
-| Component | Version / Details |
-|-----------|-------------------|
-| vLLM | 0.24.0 (`vllm/vllm-openai:v0.24.0`) |
-| llm-d | `main` branch |
-| Gateway | Istio 1.29.2 with Gateway API Inference Extension |
-| Platform | Red Hat OpenShift (LVM operator for block storage) |
-| Python | 3.12 |
+
+| Component | Version / Details                   |
+| --------- | ----------------------------------- |
+| vLLM      | 0.24.0 (`vllm/vllm-openai:v0.24.0`) |
+| Platform  | Red Hat OpenShift 4.21              |
+| Storage   | LVM operator for block storage      |
+| Python    | 3.12                                |
+
+
+### Deployment Configuration
+
+
+| Parameter                  | Server            | Offline           |
+| -------------------------- | ----------------- | ----------------- |
+| Replicas                   | 4                 | 4                 |
+| Tensor Parallel Size       | 1                 | 1                 |
+| GPU Memory Utilization     | 0.98              | 0.98              |
+| KV Cache Dtype             | fp8               | fp8               |
+| MoE Backend                | flashinfer_trtllm | flashinfer_trtllm |
+| MoE Activation Quant       | mxfp8             | mxfp8             |
+| Max Model Length           | 49 000            | 49 000            |
+| Max Num Seqs               | 1 024             | 1 024             |
+| Max Num Batched Tokens     | 4 096             | 16 384            |
+| Max CUDAGraph Capture Size | 4 096             | 2 048             |
+| Performance Mode           | interactivity     | throughput        |
+| Prefix Caching             | Disabled          | Disabled          |
+
 
 ---
 
@@ -51,7 +74,6 @@ For latest setup instructions and code:
 
 - OpenShift (or Kubernetes) cluster with:
   - **4 NVIDIA GB200 GPUs** on a single node
-  - Istio 1.29+
   - A storage provisioner (LVM operator, Ceph, local-path, etc.)
 - Cluster-admin access (required for SCC grants on OpenShift)
 
@@ -70,7 +92,7 @@ pip3 install yq
 > **Important:** Install `yq` via `pip3 install yq` (Python wrapper around `jq`), NOT via `dnf`/`brew`/`snap` which install the Go version (`mikefarah/yq`). The deployment scripts require the Python `yq` syntax. Verify with: `yq --version` — it should show `yq <version>` without `(https://github.com/mikefarah/yq/)`.
 
 OpenShift CLI (`oc`): download from  
-<https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/>
+[https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/](https://mirror.openshift.com/pub/openshift-v4/clients/ocp/latest/)
 
 ### Verify Cluster Access
 
@@ -99,7 +121,7 @@ spec:
 
 ## Model Storage Setup
 
-All pods (model servers + client) mount a shared PVC for model weights, datasets, and tokenizer files.
+All pods (model servers + client) mount a shared PVC for model weights, datasets, and gpt-oss-120b tokenizer files.
 
 ### 1. Create Namespace and PVC
 
@@ -129,18 +151,15 @@ oc apply -f model-pvc.yaml
 
 **Storage class notes:**
 
-| Requirement | Detail |
-|-------------|--------|
-| Access mode | `ReadWriteOnce` |
+
+| Requirement  | Detail                                     |
+| ------------ | ------------------------------------------ |
+| Access mode  | `ReadWriteOnce`                            |
 | Binding mode | `WaitForFirstConsumer` (GPU-node affinity) |
-| Backing | NVMe recommended for fast model loading |
+| Backing      | NVMe recommended for fast model loading    |
+
 
 > `ReadWriteOnce` means the PVC binds to one node. All pods must schedule there. On GB200 NVL4 this is fine — all 4 GPUs are on the same node.
-
-```bash
-# Check available storage classes
-oc get storageclass
-```
 
 ### 2. Bind the PVC
 
@@ -194,7 +213,7 @@ oc exec -it model-pvc-binder -n llm-d-bench -- bash
 # Inside the pod
 pip install huggingface-hub
 huggingface-cli login --token YOUR_HF_TOKEN
-huggingface-cli download openai/gpt-oss-120b --cache-dir /mnt/models
+HF_HOME=/mnt/models huggingface-cli download openai/gpt-oss-120b
 exit
 ```
 
@@ -302,7 +321,7 @@ oc delete pod model-pvc-binder -n llm-d-bench
 
 ---
 
-## LLM-D Deployment
+## Deployment Setup
 
 ### 1. Clone the Repository
 
@@ -311,7 +330,7 @@ git clone --recurse-submodule https://github.com/openshift-psap/mlperf-inference
 cd mlperf-inference-6.1-redhat
 ```
 
-### 2. Deploy
+### 2. Deploy vLLM Model Servers
 
 ```bash
 cd setup/llm-d/GB200/
@@ -320,71 +339,52 @@ cd setup/llm-d/GB200/
 **Server scenario:**
 
 ```bash
-bash deploy_gptoss120b.sh server
+bash deploy_gptoss120b.sh server --standalone
 ```
 
 **Offline scenario:**
 
 ```bash
-bash deploy_gptoss120b.sh offline
+bash deploy_gptoss120b.sh offline --standalone
 ```
 
-The script runs two phases:
-
-| Phase | Script | What it does |
-|-------|--------|--------------|
-| 1 | `install_llmd.sh` | Clones llm-d repo; installs Istio 1.29 with Gateway API Inference Extension; installs GAIE CRDs; creates namespace + HF token secret; deploys Istio gateway; installs router Helm chart with EPP config; renders model-server manifests (PVC mount, `HF_HOME`, `HF_HUB_OFFLINE=1`, `runAsUser: 0`); applies manifests |
-| 2 | `apply_ocp_fixes.sh` | Grants SCC (`privileged` for model-server SA, `anyuid` for gateway SA); overrides vLLM image to v0.24.0; deletes stale ReplicaSets; sets `TIKTOKEN_ENCODINGS_BASE`, `TIKTOKEN_RS_CACHE_DIR`, `HF_HUB_OFFLINE=1` env vars; fixes SELinux labels (hostpath only); sets HTTPRoute timeout to 7 200 s; waits for vLLM pods (5–15 min); fixes gateway `ulimit -n` to 65 536; verifies end-to-end inference |
+The script deploys 4 vLLM model server replicas on the cluster, applies OpenShift fixes (SCC, vLLM image override, environment variables), and creates a `vllm-direct` K8s service for client access.
 
 ### 3. Verify
 
 ```bash
-# All pods should be Running
+# All 4 model server pods should be Running
 oc get pods -n llm-d-bench
-
-# Expected output (4 model servers + EPP + gateway):
-# optimized-baseline-nvidia-gpu-vllm-decode-xxxx   1/1   Running
-# optimized-baseline-nvidia-gpu-vllm-decode-xxxx   1/1   Running
-# optimized-baseline-nvidia-gpu-vllm-decode-xxxx   1/1   Running
-# optimized-baseline-nvidia-gpu-vllm-decode-xxxx   1/1   Running
-# optimized-baseline-epp-xxxx                      1/1   Running
-# llm-d-inference-gateway-istio-xxxx               1/1   Running
 
 # Check model-server logs
 oc logs -n llm-d-bench -l llm-d.ai/model=gpt-oss-120b --tail=5
 
-# Verify gateway
-oc get gateway llm-d-inference-gateway -n llm-d-bench
+# Verify the API service
+curl -s http://vllm-direct.llm-d-bench.svc.cluster.local:8000/v1/models
 ```
 
-### 4. Gateway URL
+### 4. API URL
 
 ```
-http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80
+http://vllm-direct.llm-d-bench.svc.cluster.local:8000
 ```
 
 > This URL is only reachable from within the cluster.
 
 ### Switching Scenarios
 
-```bash
-bash deploy_gptoss120b.sh server --cleanup
-bash deploy_gptoss120b.sh offline
-```
-
-### Re-fixing Gateway Ulimits
-
-The file-descriptor fix is **temporary** — it does not survive pod restarts. If the gateway pod restarts:
+Server and Offline scenarios use different vLLM configurations. To switch:
 
 ```bash
-./apply_ocp_fixes.sh -o override_gptoss120b_server.yaml --fix-ulimits
+bash deploy_gptoss120b.sh server --standalone --cleanup
+bash deploy_gptoss120b.sh offline --standalone
 ```
 
 ---
 
 ## Client Pod Setup
 
-The client pod runs the MLPerf harness inside the cluster so it can reach the gateway.
+The client pod runs the MLPerf harness inside the cluster.
 
 ### 1. Grant SCC
 
@@ -408,193 +408,153 @@ oc exec -it mlperf-client -n llm-d-bench -- bash -c 'bash /client_setup.sh'
 
 The script installs system packages, clones `mlperf-inference-6.1-redhat`, creates a Python 3.12 venv (`gptoss_harness`), and installs all benchmark + harness dependencies.
 
-### 4. Configure Environment
+### 4. Enter the Client Pod
 
 ```bash
 oc exec -it mlperf-client -n llm-d-bench -- bash
-
-# Activate venv
-source /gptoss_harness/bin/activate
-cd /mlperf-inference-6.1-redhat/harness
-
-# Source helper
-source scripts/set_env_vars.sh
-
-# Required variables
-export API_SERVER_URL=http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80
-export DATASET_DIR=/mnt/models/datasets/gpt-oss_data/
-export HF_HOME=/mnt/models
-export TIKTOKEN_ENCODINGS_BASE=/mnt/models/gpt-oss-encoding
-export TIKTOKEN_RS_CACHE_DIR=/mnt/models/gpt-oss-encoding
-export OUTPUT_DIR=./harness_output
-export AWS_ACCESS_KEY_ID=dummy
-export AWS_SECRET_ACCESS_KEY=dummy
+source /mnt/models/test-mlperf/gptoss_harness/bin/activate
+cd /mnt/models/test-mlperf/mlperf-inference-6.1-redhat/harness
 ulimit -n 65536
-
-# Verify
-print_env_vars
-validate_env_vars
 ```
-
-### 5. Verify Connectivity
-
-```bash
-curl -s ${API_SERVER_URL}/v1/models | python3 -m json.tool
-```
-
-Should list `openai/gpt-oss-120b`.
 
 ---
 
-## Running Tests with run_submission.py
+## Running Tests
 
-### Prerequisites
+All tests are run from inside the client pod at `/mnt/models/test-mlperf/mlperf-inference-6.1-redhat/harness`.
 
-1. LLM-D deployed and all model-server pods `Running`
-2. Client pod created, venv activated, environment variables set
-3. `ulimit -n 65536` in the current shell
-
-### Offline Tests
+### Server Scenario
 
 ```bash
-python3 scripts/run_submission.py --scenario Offline run-offline
-```
-
-Runs: Offline Performance → Accuracy → Compliance (TEST07, TEST09).
-
-Generate a bash script instead:
-
-```bash
-python3 scripts/run_submission.py --print-bash --scenario Offline run-offline > run_offline.sh
-bash run_offline.sh
-```
-
-### Server Tests
-
-```bash
-# Adjust --server-target-qps to your measured throughput
-python3 scripts/run_submission.py \
-  --scenario Server \
-  --server-target-qps <QPS> \
-  --num-workers 8 \
-  run-server
-```
-
-Generate a bash script:
-
-```bash
-python3 scripts/run_submission.py \
-  --scenario Server \
-  --print-bash \
-  --server-target-qps <QPS> \
-  --num-workers 8 \
-  run-server > run_server.sh
+# Run all (performance + accuracy + compliance)
 bash run_server.sh
+
+# Run individual test types
+bash run_server.sh performance
+bash run_server.sh accuracy
+bash run_server.sh compliance
+bash run_server.sh compliance test07
+bash run_server.sh compliance test09
 ```
 
-> `--num-workers 8` is recommended for GB200 NVL4 with 4 replicas. A single worker bottlenecks on one asyncio event loop; 128+ workers overwhelm the gateway.
+**Configuration via environment variables:**
 
-### All Tests
+
+| Variable            | Default                 | Description                           |
+| ------------------- | ----------------------- | ------------------------------------- |
+| `SERVER_TARGET_QPS` | 39                      | Target queries per second             |
+| `NUM_WORKERS`       | 12                      | Async workers for concurrent requests |
+| `OUTPUT_DIR`        | `harness_output/server` | Output directory                      |
+| `MAX_PERF_RETRIES`  | 5                       | Retry performance if INVALID          |
+
+
+Example with custom QPS:
 
 ```bash
-python3 scripts/run_submission.py --server-target-qps <QPS> run-all
+SERVER_TARGET_QPS=36 bash run_server.sh performance
 ```
 
-### Individual Test Types
+### Offline Scenario
 
 ```bash
-# Performance only
-python3 scripts/run_submission.py --scenario Offline run-performance
-python3 scripts/run_submission.py --scenario Server --server-target-qps <QPS> run-performance
+# Run all (performance + accuracy + compliance)
+bash run_offline.sh
 
-# Accuracy only
-python3 scripts/run_submission.py --scenario Offline run-accuracy
-python3 scripts/run_submission.py --scenario Server --server-target-qps <QPS> run-accuracy
-
-# Compliance
-python3 scripts/run_submission.py --scenario Offline run-compliance
-python3 scripts/run_submission.py --scenario Offline run-compliance TEST07
-python3 scripts/run_submission.py --scenario Server --server-target-qps <QPS> run-compliance TEST09
+# Run individual test types
+bash run_offline.sh performance
+bash run_offline.sh accuracy
+bash run_offline.sh compliance
+bash run_offline.sh compliance test07
+bash run_offline.sh compliance test09
 ```
 
-### Dry Run
+**Configuration via environment variables:**
 
-```bash
-python3 scripts/run_submission.py --dry-run --scenario Offline run-offline
-```
 
-### Command Line Arguments
+| Variable              | Default                  | Description                             |
+| --------------------- | ------------------------ | --------------------------------------- |
+| `NUM_WORKERS`         | 12                       | Async workers                           |
+| `OFFLINE_CONCURRENCY` | 6396                     | Max concurrent requests                 |
+| `OUTPUT_DIR`          | `harness_output/offline` | Output directory                        |
+| `MAX_PERF_RUNS`       | 5                        | Number of performance runs (picks best) |
 
-| Argument | Description | Required |
-|----------|-------------|----------|
-| `--scenario` | `Server` or `Offline` | Yes |
-| `--server-target-qps` | Target QPS (Server only) | Yes (Server) |
-| `--num-workers` | Async workers (default 1; recommend 8) | No |
-| `--output-dir` | Output directory (default `./harness_output`) | No |
-| `--dataset-dir` | Dataset directory | No (env var) |
-| `--api-server-url` | Gateway URL | No (env var) |
-| `--user-conf` | Custom user.conf | No |
-| `--audit-config` | Audit config for compliance | No |
-| `--dry-run` | Print commands, don't execute | No |
-| `--print-bash` | Emit a bash script | No |
-| `--tag` | MLflow tags (`k=v,k=v`) | No |
 
-### Commands
+### Important Notes
 
-| Command | Description |
-|---------|-------------|
-| `run-server` | All Server tests (perf + accuracy + compliance) |
-| `run-offline` | All Offline tests |
-| `run-all` | Both scenarios |
-| `run-performance` | Performance only |
-| `run-accuracy` | Accuracy only |
-| `run-compliance` | Compliance (TEST07 + TEST09) |
+- `ulimit -n 65536` must be set before running tests
+- Server performance retries up to `MAX_PERF_RETRIES` times if INVALID
+- Offline performance runs `MAX_PERF_RUNS` times and picks the best VALID result
+- Results are saved to the `OUTPUT_DIR` with subdirectories: `performance/`, `accuracy/`, `compliance/`
 
 ---
 
 ## Creating Submission
 
-### 1. Verify Results
+### 1. Prepare Results
+
+Ensure both Server and Offline scenarios have completed with VALID results:
 
 ```bash
-ls -la harness_output/
-# Should contain Server/ and/or Offline/ with performance, accuracy, compliance results
+grep "Result is" harness_output/server/performance/mlperf/mlperf_log_summary.txt
+grep "Result is" harness_output/offline/performance/mlperf/mlperf_log_summary.txt
 ```
 
-### 2. Package
+### 2. Structure for Submission Checker
 
 ```bash
-cd harness
-bash create_submission.sh harness_output
+rm -rf SUBMISSION_CHECK
+mkdir -p SUBMISSION_CHECK/server SUBMISSION_CHECK/offline
+
+cp -R harness_output/server/performance SUBMISSION_CHECK/server/
+cp -R harness_output/server/accuracy SUBMISSION_CHECK/server/
+cp -R harness_output/server/compliance SUBMISSION_CHECK/server/
+
+cp -R harness_output/offline/performance SUBMISSION_CHECK/offline/
+cp -R harness_output/offline/accuracy SUBMISSION_CHECK/offline/
+cp -R harness_output/offline/compliance SUBMISSION_CHECK/offline/
 ```
 
-The script runs compliance checks, verifies accuracy, converts to MLPerf directory structure, truncates accuracy logs, copies system JSON, and runs the submission checker.
-
-### 3. Verify
+### 3. Run Compliance and Accuracy Checks
 
 ```bash
-ls -la SUBMISSION_TEST/_truncated_v6/closed/RedHat/
+export DATASET_DIR=/mnt/models/datasets/gpt-oss_data/
+export HF_HOME=/mnt/models
+export TRANSFORMERS_OFFLINE=1
+export HF_HUB_OFFLINE=1
+
+bash scripts/run_compliance_checks.sh SUBMISSION_CHECK/
+bash scripts/check_accuracy.sh SUBMISSION_CHECK/server/accuracy/
+bash scripts/check_accuracy.sh SUBMISSION_CHECK/offline/accuracy/
 ```
 
-Expected:
+### 4. Convert and Package
 
+```bash
+python3 scripts/convert_to_submission.py \
+  --input-dir SUBMISSION_CHECK/ \
+  --output-dir SUBMISSION_TEST \
+  --system-name "4xGB200-Openshift" \
+  --model "gpt-oss-120b"
+
+export SUBMIT_ROOT=./SUBMISSION_TEST/
+export TRUNC_ROOT="$SUBMIT_ROOT/_truncated_v6"
+rm -rf "$TRUNC_ROOT"
+python3 ../tools/submission/truncate_accuracy_log.py \
+  --input "$SUBMIT_ROOT" --submitter RedHat --output "$TRUNC_ROOT"
 ```
-SUBMISSION_TEST/_truncated_v6/closed/RedHat/
-├── results/
-│   └── 4xGB200-LLM-D-Openshift/
-│       └── gpt-oss-120b/
-│           ├── Server/
-│           │   ├── performance/
-│           │   ├── accuracy/
-│           │   └── compliance/
-│           └── Offline/
-│               ├── performance/
-│               ├── accuracy/
-│               └── compliance/
-├── systems/
-│   └── 4xGB200-LLM-D-Openshift.json
-└── ...
+
+### 5. Copy System JSON and Run Checker
+
+```bash
+cp scripts/4xGB200-LLM-D-Openshift.json ./SUBMISSION_TEST/_truncated_v6/closed/RedHat/systems/
+cp default.conf ./SUBMISSION_TEST/_truncated_v6/closed/RedHat/results/4xGB200-Openshift/gpt-oss-120b/Server/user.conf
+cp offline.conf ./SUBMISSION_TEST/_truncated_v6/closed/RedHat/results/4xGB200-Openshift/gpt-oss-120b/Offline/user.conf
+
+python3 ../tools/submission/submission_checker/main.py \
+  --input ./SUBMISSION_TEST/_truncated_v6 --version v6.1
 ```
+
+Expected: `SUMMARY: submission looks OK`
 
 ---
 
@@ -610,9 +570,9 @@ oc create namespace llm-d-bench
 oc apply -f model-pvc.yaml
 # … populate PVC with weights, encodings, datasets …
 
-# 3. Deploy llm-d
+# 3. Deploy (server scenario)
 cd setup/llm-d/GB200/
-bash deploy_gptoss120b.sh server    # or "offline"
+bash deploy_gptoss120b.sh server --standalone
 
 # 4. Client pod
 cd ../../../
@@ -622,23 +582,15 @@ oc exec -it mlperf-client -n llm-d-bench -- bash -c 'bash /client_setup.sh'
 
 # 5. Run tests (inside client pod)
 oc exec -it mlperf-client -n llm-d-bench -- bash
-source /gptoss_harness/bin/activate
-cd /mlperf-inference-6.1-redhat/harness
-source scripts/set_env_vars.sh
-export API_SERVER_URL=http://llm-d-inference-gateway.llm-d-bench.svc.cluster.local:80
-export DATASET_DIR=/mnt/models/datasets/gpt-oss_data/
-export HF_HOME=/mnt/models
-export TIKTOKEN_ENCODINGS_BASE=/mnt/models/gpt-oss-encoding
-export TIKTOKEN_RS_CACHE_DIR=/mnt/models/gpt-oss-encoding
-export AWS_ACCESS_KEY_ID=dummy
-export AWS_SECRET_ACCESS_KEY=dummy
+source /mnt/models/test-mlperf/gptoss_harness/bin/activate
+cd /mnt/models/test-mlperf/mlperf-inference-6.1-redhat/harness
 ulimit -n 65536
 
-python3 scripts/run_submission.py --scenario Server --server-target-qps <QPS> --num-workers 8 run-server
-python3 scripts/run_submission.py --scenario Offline run-offline
+bash run_server.sh          # Full server scenario
+bash run_offline.sh         # Full offline scenario (requires offline deploy first)
 
 # 6. Create submission
-bash create_submission.sh harness_output
+# See "Creating Submission" section
 ```
 
 ---
@@ -647,27 +599,32 @@ bash create_submission.sh harness_output
 
 ### Model-Server Pods Not Starting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `unable to validate against any security context constraint` | SCC not granted before pod creation | Grant SCC, then delete the stale ReplicaSet so the deployment creates new pods: `oc delete rs -n llm-d-bench $(oc get rs -n llm-d-bench --no-headers -o custom-columns=":metadata.name" \| grep optimized-baseline-nvidia-gpu-vllm-decode)` |
-| `PermissionError: …/flashinfer_cubin` | Container not running as root | Ensure `runAsUser: 0` is in the pod security context. `install_llmd.sh` sets this for PVC source automatically. |
-| `LocalEntryNotFoundError: Cannot find cached snapshot` | HF cache incomplete or `HF_HUB_OFFLINE=1` set before cache is populated | Verify `refs/main`, `snapshots/`, and `blobs/` exist under `/mnt/models/hub/models--openai--gpt-oss-120b/`. If downloading is needed, temporarily remove `HF_HUB_OFFLINE`. |
-| `OSError: Repo id must be in the form 'namespace/repo_name': '/mnt/models/gpt-oss-120b'` | Model arg is a filesystem path instead of HF name | The model arg should be `openai/gpt-oss-120b` (resolved via `HF_HOME`), not a path. |
+
+| Symptom                                                      | Cause                               | Fix                                                                                                                                                                                                     |
+| ------------------------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unable to validate against any security context constraint` | SCC not granted before pod creation | Grant SCC, then delete the stale ReplicaSet: `oc delete rs -n llm-d-bench $(oc get rs -n llm-d-bench --no-headers -o custom-columns=":metadata.name" | grep optimized-baseline-nvidia-gpu-vllm-decode)` |
+| `PermissionError: …/flashinfer_cubin`                        | Container not running as root       | Ensure `runAsUser: 0` is in the pod security context                                                                                                                                                    |
+| `LocalEntryNotFoundError: Cannot find cached snapshot`       | HF cache incomplete                 | Verify `refs/main`, `snapshots/`, and `blobs/` exist under `/mnt/models/hub/models--openai--gpt-oss-120b/`                                                                                              |
+
 
 ### PVC Permission Denied
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `Permission denied: '/mnt/models/'` as root | SELinux blocking LVM volume access | Set permissive on the node: `oc debug node/<name> -- chroot /host setenforce 0` |
-| `Permission denied: '/mnt/models/hub/…/refs/main'` | File permissions from LVM provisioner | `oc exec <pod> -- chmod -R 777 /mnt/models/` |
 
-### Gateway / Networking
+| Symptom                                            | Cause                                 | Fix                                                                             |
+| -------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `Permission denied: '/mnt/models/'` as root        | SELinux blocking LVM volume access    | Set permissive on the node: `oc debug node/<name> -- chroot /host setenforce 0` |
+| `Permission denied: '/mnt/models/hub/…/refs/main'` | File permissions from LVM provisioner | `oc exec <pod> -- chmod -R 777 /mnt/models/`                                    |
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `Too many open files` | Default ulimit too low | `ulimit -n 65536` before running tests. For gateway pods: `./apply_ocp_fixes.sh -o <override> --fix-ulimits` |
-| `ServerDisconnectedError` / `ConnectionResetError` | Gateway overwhelmed or restarted | Harness retries automatically. If persistent, check gateway logs and ensure HTTPRoute timeout = 7200 s. |
-| `can't start new thread` | Pod PID limit too low | Apply `KubeletConfig` with `podPidsLimit: 32768` (requires node reboot). |
+
+### Harness Errors
+
+
+| Symptom                                            | Cause                                            | Fix                                                                     |
+| -------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `Too many open files`                              | Default ulimit too low                           | `ulimit -n 65536` before running tests                                  |
+| `ServerDisconnectedError` / `ConnectionResetError` | vLLM temporarily dropping connections under load | Harness retries automatically. If persistent, check pod logs            |
+| `can't start new thread`                           | Pod PID limit too low                            | Apply `KubeletConfig` with `podPidsLimit: 32768` (requires node reboot) |
+
 
 ### Accuracy
 
@@ -678,7 +635,7 @@ bash create_submission.sh harness_output
 
 ## Additional Resources
 
-- GB200 deployment configs: `setup/llm-d/GB200/`
-- EPP scorer configs: `setup/llm-d/GB200/epp-configs/`
+- Deployment configs: `setup/llm-d/GB200/`
 - Environment variables: `harness/scripts/set_env_vars.sh`
 - Submission converter: `harness/scripts/convert_to_submission.py`
+

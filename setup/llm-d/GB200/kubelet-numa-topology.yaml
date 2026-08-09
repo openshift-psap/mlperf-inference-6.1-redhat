@@ -5,6 +5,18 @@ metadata:
 spec:
   kubeletConfig:
     podPidsLimit: 32768
+    cpuManagerPolicy: static
+    cpuManagerReconcilePeriod: 5s
+    topologyManagerPolicy: best-effort
+    topologyManagerPolicyOptions:
+      max-allowable-numa-nodes: "34"
+    reservedSystemCPUs: "0-15,72-87"
+    systemReserved:
+      cpu: "16"
+      memory: "4Gi"
+    kubeReserved:
+      cpu: "16"
+      memory: "4Gi"
   machineConfigPoolSelector:
     matchLabels:
       pools.operator.machineconfiguration.openshift.io/master: ""

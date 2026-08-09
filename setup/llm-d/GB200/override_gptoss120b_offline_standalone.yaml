@@ -21,7 +21,7 @@ modelserver:
 
   cpu_limit: "20"
   cpu_request: "20"
-  memory_limit: "16Gi"
+  memory_limit: 16Gi
   memory_request: 16Gi
   shm_size: 20Gi
   vllm_args:
@@ -31,11 +31,10 @@ modelserver:
     - "--kv-cache-dtype=fp8"
     - "--moe-backend=flashinfer_trtllm"
     - "--quantization_config.moe.activation=mxfp8"
-    - "--max-cudagraph-capture-size=4096"
-    - "--max-num-batched-tokens=4096"
+    - "--max-cudagraph-capture-size=8192"
+    - "--max-num-batched-tokens=16384"
     - "--no-enable-prefix-caching"
-    - "--performance-mode=interactivity"
 
 router:
   mode: standalone
-  epp_config: epp-configs/active-request.yaml
+  epp_config: epp-configs/mlperf-v60.yaml
