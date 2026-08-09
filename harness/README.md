@@ -58,10 +58,10 @@ For latest setup instructions and code:
 | KV Cache Dtype             | fp8               | fp8               |
 | MoE Backend                | flashinfer_trtllm | flashinfer_trtllm |
 | MoE Activation Quant       | mxfp8             | mxfp8             |
-| Max Model Length           | 49 000            | 49 000            |
-| Max Num Seqs               | 1 024             | 1 024             |
-| Max Num Batched Tokens     | 4 096             | 16 384            |
-| Max CUDAGraph Capture Size | 4 096             | 2 048             |
+| Max Model Length           | 49000             | 49000             |
+| Max Num Seqs               | 1024              | 1024              |
+| Max Num Batched Tokens     | 4096              | 16384             |
+| Max CUDAGraph Capture Size | 4096              | 8192              |
 | Performance Mode           | interactivity     | throughput        |
 | Prefix Caching             | Disabled          | Disabled          |
 
@@ -442,7 +442,7 @@ bash run_server.sh compliance test09
 
 | Variable            | Default                 | Description                           |
 | ------------------- | ----------------------- | ------------------------------------- |
-| `SERVER_TARGET_QPS` | 39                      | Target queries per second             |
+| `SERVER_TARGET_QPS` | 39.14                   | Target queries per second             |
 | `NUM_WORKERS`       | 12                      | Async workers for concurrent requests |
 | `OUTPUT_DIR`        | `harness_output/server` | Output directory                      |
 | `MAX_PERF_RETRIES`  | 5                       | Retry performance if INVALID          |
@@ -451,7 +451,7 @@ bash run_server.sh compliance test09
 Example with custom QPS:
 
 ```bash
-SERVER_TARGET_QPS=36 bash run_server.sh performance
+SERVER_TARGET_QPS=40 bash run_server.sh performance
 ```
 
 ### Offline Scenario
@@ -476,14 +476,12 @@ bash run_offline.sh compliance test09
 | `NUM_WORKERS`         | 12                       | Async workers                           |
 | `OFFLINE_CONCURRENCY` | 6396                     | Max concurrent requests                 |
 | `OUTPUT_DIR`          | `harness_output/offline` | Output directory                        |
-| `MAX_PERF_RUNS`       | 5                        | Number of performance runs (picks best) |
+| `MAX_PERF_RUNS`       | 5                        | Number of performance runs              |
 
 
 ### Important Notes
 
 - `ulimit -n 65536` must be set before running tests
-- Server performance retries up to `MAX_PERF_RETRIES` times if INVALID
-- Offline performance runs `MAX_PERF_RUNS` times and picks the best VALID result
 - Results are saved to the `OUTPUT_DIR` with subdirectories: `performance/`, `accuracy/`, `compliance/`
 
 ---

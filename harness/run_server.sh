@@ -22,7 +22,7 @@ COMPLIANCE_DIR="${SCRIPT_DIR}/../compliance"
 
 # Configuration
 API_URL="http://vllm-direct.llm-d-bench.svc.cluster.local:8000"
-QPS="${SERVER_TARGET_QPS:-39}"
+QPS="${SERVER_TARGET_QPS:-39.14}"
 OUTPUT_BASE="${OUTPUT_DIR:-harness_output/server}"
 NUM_WORKERS="${NUM_WORKERS:-12}"
 MAX_PERF_RETRIES="${MAX_PERF_RETRIES:-5}"
